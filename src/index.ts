@@ -218,6 +218,7 @@ async function main() {
 		});
 	});
 
+	// Shamelessly stolen from https://github.com/modelcontextprotocol/typescript-sdk?tab=readme-ov-file#without-session-management-stateless
 	app.post('/mcp', async (req: Request, res: Response) => {
 		// In stateless mode, create a new instance of transport and server for each request
 		// to ensure complete isolation. A single instance would cause request ID collisions
