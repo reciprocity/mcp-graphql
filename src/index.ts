@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
+import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import { parse } from "graphql/language";
 import { z } from "zod";
 import { checkDeprecatedArguments } from "./helpers/deprecation.js";
@@ -32,6 +33,7 @@ const EnvSchema = z.object({
 			}
 		}),
 	SCHEMA: z.string().optional(),
+	PORT: z.number().default(3000),
 });
 
 const env = EnvSchema.parse(process.env);
@@ -207,12 +209,79 @@ server.tool(
 );
 
 async function main() {
-	const transport = new StdioServerTransport();
-	await server.connect(transport);
+	const app = express();
+	app.use(express.json());
 
-	console.error(
-		`Started graphql mcp server ${env.NAME} for endpoint: ${env.ENDPOINT}`,
-	);
+	app.get('/health', async (req: Request, res: Response) => {
+		res.status(200).json({
+			status: "ok"
+		});
+	});
+
+	app.post('/mcp', async (req: Request, res: Response) => {
+		// In stateless mode, create a new instance of transport and server for each request
+		// to ensure complete isolation. A single instance would cause request ID collisions
+		// when multiple clients connect concurrently.
+
+		try {
+			const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
+				sessionIdGenerator: undefined,
+			});
+
+			res.on('close', () => {
+				console.log('Request closed');
+				transport.close();
+				server.close();
+			});
+
+			await server.connect(transport);
+			await transport.handleRequest(req, res, req.body);
+
+		} catch (error) {
+			console.error('Error handling MCP request:', error);
+
+			if (!res.headersSent) {
+				res.status(500).json({
+					jsonrpc: '2.0',
+					error: {
+						code: -32603,
+						message: 'Internal server error',
+					},
+					id: null,
+				});
+			}
+		}
+	});
+
+	app.get('/mcp', async (req: Request, res: Response) => {
+		console.log('Received GET MCP request');
+
+		res.writeHead(405).end(JSON.stringify({
+			jsonrpc: "2.0",
+			error: {
+				code: -32000,
+				message: "Method not allowed."
+			},
+			id: null
+		}));
+	});
+
+	app.delete('/mcp', async (req: Request, res: Response) => {
+		console.log('Received DELETE MCP request');
+
+		res.writeHead(405).end(JSON.stringify({
+			jsonrpc: "2.0",
+			error: {
+				code: -32000,
+				message: "Method not allowed."
+			},
+			id: null
+		}));
+	});
+
+	app.listen(env.PORT, () => {
+		console.log(`MCP Stateless Streamable HTTP Server listening on port ${env.PORT}`);
+	});
 }
 
 main().catch((error) => {
