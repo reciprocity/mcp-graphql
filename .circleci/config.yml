@@ -1,0 +1,37 @@
+version: 2.1
+
+# Enables dynamic config
+setup: true
+
+orbs:
+  continuation: circleci/continuation@1.0.0
+  path-filtering: circleci/path-filtering@0.1.7
+  deploytools: zengrc/deploytools@1.56.0
+
+jobs:
+  run-config-ytt:
+    executor: continuation/default
+    steps:
+      - checkout # checkout code
+      - run:
+          name: Generate config
+          command: |
+            wget -q -O ~/bin/ytt https://github.com/carvel-dev/ytt/releases/download/v0.50.0/ytt-linux-amd64
+            chmod ugo+x ~/bin/ytt
+            cd ~/project/.circleci
+            ytt -f config.ytt.yaml -f ./include/ > generated_config.yml
+      - continuation/continue:
+          configuration_path: /home/circleci/project/.circleci/generated_config.yml
+
+workflows:
+  # Determine the next CircleCI workflow to run based on what files have changed
+  generate-config:
+    jobs:
+      - run-config-ytt:
+          filters:
+            branches:
+              # Trigger on every push to any branch
+              only: /.*/
+            tags:
+              # Trigger on every tag
+              only: /.*/
